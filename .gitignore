@@ -1,1 +1,7 @@
 /target
+/build
+/.vscode
+**/__pycache__/
+src/*.bak
+Cargo.lock
+temp*
