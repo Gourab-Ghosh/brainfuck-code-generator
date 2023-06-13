@@ -1,11 +1,13 @@
 use super::*;
 
+#[derive(Clone)]
 pub struct BrainFuck {
     curr_index: usize,
     stacks: Vec<Stack>,
     index_backups: Vec<usize>,
     code: String,
-    interpreter: BrainFuckInterpreter,
+    value_changer_threshold: u8,
+    pub interpreter: BrainFuckInterpreter,
 }
 
 impl BrainFuck {
@@ -15,8 +17,17 @@ impl BrainFuck {
             stacks: vec![Stack::new(0, initial_stack_size)],
             index_backups: vec![],
             code: String::new(),
+            value_changer_threshold: 15,
             interpreter: BrainFuckInterpreter::new(),
         }
+    }
+
+    pub fn get_value_changer_threshold(&self) -> u8 {
+        self.value_changer_threshold
+    }
+
+    pub fn set_value_changer_threshold(&mut self, value: u8) {
+        self.value_changer_threshold = value;
     }
 
     pub fn get_last_empty_cell(&self) -> usize {
@@ -202,7 +213,7 @@ impl BrainFuck {
     }
 
     pub fn add_to_current_cell(&mut self, value: u8, restore_index: bool) {
-        if value <= VALUE_CHANGER_THRESHOLD {
+        if value <= self.value_changer_threshold {
             for _ in 0..value {
                 self.code += "+";
             }
@@ -241,7 +252,7 @@ impl BrainFuck {
                 return;
             }
         }
-        if value <= VALUE_CHANGER_THRESHOLD {
+        if value <= self.value_changer_threshold {
             for _ in 0..value {
                 self.code += "-";
             }
@@ -301,7 +312,7 @@ impl BrainFuck {
         let mut prev_value = optional_prev_value.unwrap_or(0);
         while multiplier != 1 {
             let factor = get_smallest_prime_factor(multiplier);
-            if factor > VALUE_CHANGER_THRESHOLD.max(2) {
+            if factor > self.value_changer_threshold.max(2) {
                 let stack = self.generate_stack(1);
                 self.copy_value_without_overwriting(curr_index, stack.get_start_index(), false);
                 self.go_to_cell(curr_index);
@@ -343,7 +354,7 @@ impl BrainFuck {
                 return;
             }
             let difference = value.abs_diff(prev_value);
-            if difference <= VALUE_CHANGER_THRESHOLD {
+            if difference <= self.value_changer_threshold {
                 if value > prev_value {
                     self.add_to_current_cell(difference, restore_index);
                 } else {
@@ -352,7 +363,7 @@ impl BrainFuck {
                 return;
             }
         } else {
-            if value <= VALUE_CHANGER_THRESHOLD {
+            if value <= self.value_changer_threshold {
                 self.clear_current_cell();
                 self.add_to_current_cell(value, restore_index);
                 return;
@@ -376,7 +387,7 @@ impl BrainFuck {
         restore_index: bool,
     ) {
         let optional_prev_value = optional_prev_value.into();
-        if is_prime(value) && value > VALUE_CHANGER_THRESHOLD {
+        if is_prime(value) && value > self.value_changer_threshold {
             self.set_current_cell_value(value - 1, optional_prev_value, true);
             self.add_to_current_cell(1, restore_index);
             return;
@@ -394,18 +405,16 @@ impl BrainFuck {
                 return;
             }
             let difference = value.abs_diff(prev_value);
-            if difference <= VALUE_CHANGER_THRESHOLD {
-                if value > prev_value {
-                    self.add_to_current_cell(difference, restore_index);
-                } else {
-                    self.subtract_from_current_cell(difference, prev_value, restore_index);
-                }
-                return;
-            }
             let multiplier = value / prev_value;
-            if multiplier > 1 {
+            if multiplier > 1 && difference > self.value_changer_threshold {
                 self.multiply_current_cell_by(multiplier, prev_value, true);
                 self.set_current_cell_value(value, prev_value * multiplier, restore_index);
+                return;
+            }
+            if value > prev_value {
+                self.add_to_current_cell(difference, restore_index);
+            } else {
+                self.subtract_from_current_cell(difference, prev_value, restore_index);
             }
         } else {
             self.set_curr_cell_val(value, None, restore_index);
@@ -429,8 +438,10 @@ impl BrainFuck {
             self.go_to_cell(curr_index);
         }
         f(self);
+        self.jump_to_stack(stack);
+        self.code += "[";
         self.go_to_cell(curr_index);
-        self.code += "[+";
+        self.code += "+";
         self.jump_to_stack(stack);
         self.code += "-]]";
         self.delete_stack(stack, false, vec![0]);
@@ -507,6 +518,10 @@ impl BrainFuck {
         }
     }
 
+    // pub fn if_elif_else(&mut self, conditions: Vec<(u8, dyn FnOnce(&mut Self))>, restore_index: bool, restore_index_before_calling: bool) {
+    //     self.if_current_cell_is_zero_else(conditions[0].1, conditions[1].1, restore_index, restore_index_before_calling);
+    // }
+
     pub fn print_string(&mut self, string: &str) {
         let stack = self.generate_stack(1);
         let curr_index = self.curr_index;
@@ -547,10 +562,6 @@ impl BrainFuck {
         }
         self.optimise_code();
         let optimised_code = self.code.clone();
-        // let last_input_or_output = optimised_code
-        //     .rfind(|c| c == '.' || c == ',')
-        //     .unwrap_or(0);
-        // optimised_code[..last_input_or_output + 1].to_string()
         optimised_code
             .chars()
             .enumerate()
@@ -564,9 +575,133 @@ impl BrainFuck {
             .collect()
     }
 
+    pub fn print_interpreter(&self) {
+        println!("{}", self.interpreter);
+    }
+
     pub fn run_code(&mut self) {
         let optimised_code = self.get_optimised_code();
+        self.interpreter.reset();
         self.interpreter.interpret(&optimised_code, false);
         // self.interpreter.interpret(&optimised_code, true);
+    }
+
+    pub fn clear_code(&mut self) {
+        self.code.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_add() {
+        let mut brainfuck = BrainFuck::new(1);
+        let mut val = 0;
+        for (threshold, value) in [
+            (5, 10),
+            (15, 12),
+            (50, 30),
+            (u8::MAX, 50),
+        ] {
+            brainfuck.set_value_changer_threshold(threshold);
+            brainfuck.add_to_current_cell(value, true);
+            val += value;
+            brainfuck.run_code();
+            assert_eq!(brainfuck.interpreter.get_current_cell_value(), val);
+        }
+    }
+
+    #[test]
+    fn test_subtract() {
+        let mut brainfuck = BrainFuck::new(1);
+        let mut val = 250;
+        for _ in 0..val {
+            brainfuck.code += "+";
+        }
+        for (threshold, value) in [
+            (5, 10),
+            (15, 12),
+            (50, 37),
+            (u8::MAX, 50),
+        ] {
+            brainfuck.set_value_changer_threshold(threshold);
+            brainfuck.subtract_from_current_cell(value, None, true);
+            val -= value;
+            brainfuck.run_code();
+            assert_eq!(brainfuck.interpreter.get_current_cell_value(), val);
+            brainfuck.subtract_from_current_cell(value, val, true);
+            val -= value;
+            brainfuck.run_code();
+            assert_eq!(brainfuck.interpreter.get_current_cell_value(), val);
+        }
+    }
+
+    #[test]
+    fn test_multiply() {
+        let mut brainfuck = BrainFuck::new(1);
+        let mut val;
+        for (idx, (threshold, value)) in [
+            (5, 7),
+            (15, 4),
+            (50, 1),
+            (u8::MAX, 50),
+            (2, 13),
+            (20, 40),
+        ].iter().enumerate() {
+            for _ in 0..idx {
+                brainfuck.code += "+";
+            }
+            val = idx as u8;
+            brainfuck.set_value_changer_threshold(*threshold);
+            brainfuck.multiply_current_cell_by(*value, None, true);
+            val *= value;
+            brainfuck.run_code();
+            assert_eq!(brainfuck.interpreter.get_current_cell_value(), val);
+            brainfuck.clear_current_cell();
+            for _ in 0..idx {
+                brainfuck.code += "+";
+            }
+            val = idx as u8;
+            brainfuck.multiply_current_cell_by(*value, val, true);
+            val *= value;
+            brainfuck.run_code();
+            assert_eq!(brainfuck.interpreter.get_current_cell_value(), val);
+            brainfuck.clear_current_cell();
+        }
+    }
+
+    #[test]
+    fn test_set_value() {
+        let mut brainfuck = BrainFuck::new(1);
+        let indices = [
+            (5, 70),
+            (15, 29),
+            (50, 15),
+            (u8::MAX, 101),
+            (2, 219),
+            (20, 50),
+            (1, 119),
+            (100, 30),
+            (30, 50),
+            (63, 173),
+            (10, 0),
+            (5, 1),
+            (12, 251),
+        ];
+        for (threshold, value) in indices {
+            brainfuck.set_value_changer_threshold(threshold);
+            brainfuck.set_current_cell_value(value, None, true);
+            brainfuck.run_code();
+            assert_eq!(brainfuck.interpreter.get_current_cell_value(), value);
+        }
+        let mut prev_val = indices[indices.len() - 1].1;
+        for (threshold, value) in indices {
+            brainfuck.set_value_changer_threshold(threshold);
+            brainfuck.set_current_cell_value(value, prev_val, true);
+            prev_val = value;
+            brainfuck.run_code();
+            assert_eq!(brainfuck.interpreter.get_current_cell_value(), value);
+        }
     }
 }

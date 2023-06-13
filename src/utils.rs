@@ -13,6 +13,16 @@ pub fn is_prime(number: u8) -> bool {
     PRIMES.contains(&number)
 }
 
+pub enum Function {
+    FnOnce(Box<dyn FnOnce(&mut BrainFuck)>),
+}
+
+// impl Function {
+//     pub fn unwrap(&self) -> Box<dyn FnOnce(&mut BrainFuck)> {
+//         self.
+//     }
+// }
+
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
 pub struct Stack {
     start_index: usize,

@@ -4,7 +4,6 @@ pub const PRIMES: [u8; 54] = [
     197, 199, 211, 223, 227, 229, 233, 239, 241, 251,
 ];
 pub const BAD_PATTERNS: [&str; 5] = ["+-", "-+", "<>", "><", "[]"];
-// pub const VALUE_CHANGER_THRESHOLD: u8 = 15;
-pub const VALUE_CHANGER_THRESHOLD: u8 = u8::MAX;
+// pub const VALUE_CHANGER_THRESHOLD: u8 = u8::MAX;
 // pub const WORDWRAP_THRESHOLD: usize = 65;
 pub const WORDWRAP_THRESHOLD: usize = usize::MAX;
