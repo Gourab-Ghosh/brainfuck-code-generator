@@ -1,46 +1,11 @@
 use super::*;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Hash)]
-pub struct Stack {
-    start_index: usize,
-    end_index: usize,
-}
-
-fn get_smallest_factor(number: u8) -> u8 {
-    for prime in PRIMES {
-        if number % prime == 0 {
-            return prime;
-        }
-    }
-    unreachable!()
-}
-
-fn is_prime(number: u8) -> bool {
-    PRIMES.contains(&number)
-}
-
-impl Stack {
-    pub fn new(start_index: usize, length: usize) -> Stack {
-        Stack {
-            start_index,
-            end_index: start_index + length,
-        }
-    }
-
-    pub fn get_start_index(&self) -> usize {
-        self.start_index
-    }
-
-    pub fn get_end_index(&self) -> usize {
-        self.end_index
-    }
-}
-
 pub struct BrainFuck {
     curr_index: usize,
     stacks: Vec<Stack>,
     index_backups: Vec<usize>,
     code: String,
+    interpreter: BrainFuckInterpreter,
 }
 
 impl BrainFuck {
@@ -50,6 +15,7 @@ impl BrainFuck {
             stacks: vec![Stack::new(0, initial_stack_size)],
             index_backups: vec![],
             code: String::new(),
+            interpreter: BrainFuckInterpreter::new(),
         }
     }
 
@@ -62,6 +28,10 @@ impl BrainFuck {
             .map(|stack| stack.get_end_index())
             .max()
             .unwrap()
+    }
+
+    pub fn get_current_index(&self) -> usize {
+        self.curr_index
     }
 
     pub fn go_to_cell(&mut self, index: usize) {
@@ -79,7 +49,10 @@ impl BrainFuck {
         self.code += "[-]";
     }
 
-    pub fn take_input(&mut self) {
+    pub fn take_input(&mut self, message: &str) {
+        if message != "" {
+            self.print_string(message);
+        }
         self.code += ",";
     }
 
@@ -199,7 +172,7 @@ impl BrainFuck {
         self.code += "+";
         self.go_to_cell(from_index);
         self.code += "-]";
-        self.move_value(stack.get_start_index(), from_index, 0, None, false);
+        self.move_value_without_overwriting(stack.get_start_index(), from_index, false);
         self.delete_stack(stack, false, vec![0]);
         if restore_index {
             self.restore_index()
@@ -229,7 +202,7 @@ impl BrainFuck {
     }
 
     pub fn add_to_current_cell(&mut self, value: u8, restore_index: bool) {
-        if value <= THRESHOLD {
+        if value <= VALUE_CHANGER_THRESHOLD {
             for _ in 0..value {
                 self.code += "+";
             }
@@ -267,15 +240,8 @@ impl BrainFuck {
                 self.clear_current_cell();
                 return;
             }
-            let difference = prev_value - value;
-            if difference <= THRESHOLD {
-                for _ in 0..difference {
-                    self.code += "-";
-                }
-                return;
-            }
         }
-        if value <= THRESHOLD {
+        if value <= VALUE_CHANGER_THRESHOLD {
             for _ in 0..value {
                 self.code += "-";
             }
@@ -310,7 +276,7 @@ impl BrainFuck {
         }
         self.go_to_cell(curr_index);
         self.code += "-]";
-        self.move_value_without_overwriting(stack.start_index, curr_index, false);
+        self.move_value_without_overwriting(stack.get_start_index(), curr_index, false);
         self.delete_stack(stack, false, vec![0]);
     }
 
@@ -332,9 +298,28 @@ impl BrainFuck {
             self.backup_index()
         }
         let curr_index = self.curr_index;
+        let mut prev_value = optional_prev_value.unwrap_or(0);
         while multiplier != 1 {
-            let factor = get_smallest_factor(multiplier);
-            self.sub_multiply(factor, curr_index);
+            let factor = get_smallest_prime_factor(multiplier);
+            if factor > VALUE_CHANGER_THRESHOLD.max(2) {
+                let stack = self.generate_stack(1);
+                self.copy_value_without_overwriting(curr_index, stack.get_start_index(), false);
+                self.go_to_cell(curr_index);
+                self.multiply_current_cell_by(
+                    factor - 1,
+                    if prev_value == 0 {
+                        None
+                    } else {
+                        Some(prev_value)
+                    },
+                    false,
+                );
+                self.move_value_without_overwriting(stack.get_start_index(), curr_index, false);
+                self.delete_stack(stack, false, vec![0]);
+            } else {
+                self.sub_multiply(factor, curr_index);
+            }
+            prev_value = prev_value.wrapping_mul(factor);
             multiplier /= factor;
         }
         if restore_index {
@@ -349,8 +334,29 @@ impl BrainFuck {
         restore_index: bool,
     ) {
         let mut optional_prev_value = optional_prev_value.into();
-        if optional_prev_value == Some(value) {
-            return;
+        if let Some(prev_value) = optional_prev_value {
+            if value == prev_value {
+                return;
+            }
+            if value == 0 {
+                self.clear_current_cell();
+                return;
+            }
+            let difference = value.abs_diff(prev_value);
+            if difference <= VALUE_CHANGER_THRESHOLD {
+                if value > prev_value {
+                    self.add_to_current_cell(difference, restore_index);
+                } else {
+                    self.subtract_from_current_cell(difference, prev_value, restore_index);
+                }
+                return;
+            }
+        } else {
+            if value <= VALUE_CHANGER_THRESHOLD {
+                self.clear_current_cell();
+                self.add_to_current_cell(value, restore_index);
+                return;
+            }
         }
         if ![Some(0), Some(1)].contains(&optional_prev_value) {
             self.clear_current_cell();
@@ -370,7 +376,7 @@ impl BrainFuck {
         restore_index: bool,
     ) {
         let optional_prev_value = optional_prev_value.into();
-        if is_prime(value) && value > THRESHOLD {
+        if is_prime(value) && value > VALUE_CHANGER_THRESHOLD {
             self.set_current_cell_value(value - 1, optional_prev_value, true);
             self.add_to_current_cell(1, restore_index);
             return;
@@ -387,38 +393,135 @@ impl BrainFuck {
                 self.set_curr_cell_val(value, 0, restore_index);
                 return;
             }
+            let difference = value.abs_diff(prev_value);
+            if difference <= VALUE_CHANGER_THRESHOLD {
+                if value > prev_value {
+                    self.add_to_current_cell(difference, restore_index);
+                } else {
+                    self.subtract_from_current_cell(difference, prev_value, restore_index);
+                }
+                return;
+            }
             let multiplier = value / prev_value;
             if multiplier > 1 {
                 self.multiply_current_cell_by(multiplier, prev_value, true);
                 self.set_current_cell_value(value, prev_value * multiplier, restore_index);
-                return;
-            }
-            let difference = value.abs_diff(prev_value);
-            if value > prev_value {
-                self.add_to_current_cell(difference, restore_index);
-            } else {
-                self.subtract_from_current_cell(difference, prev_value, restore_index);
             }
         } else {
             self.set_curr_cell_val(value, None, restore_index);
         }
     }
 
+    pub fn if_current_cell_is_not_zero<F>(
+        &mut self,
+        f: F,
+        restore_index: bool,
+        restore_index_before_calling: bool,
+    ) where
+        F: FnOnce(&mut Self),
+    {
+        let curr_index = self.curr_index;
+        let stack = self.generate_stack(1);
+        self.move_value_without_overwriting(curr_index, stack.get_start_index(), false);
+        self.jump_to_stack(stack);
+        self.code += "[";
+        if restore_index_before_calling {
+            self.go_to_cell(curr_index);
+        }
+        f(self);
+        self.go_to_cell(curr_index);
+        self.code += "[+";
+        self.jump_to_stack(stack);
+        self.code += "-]]";
+        self.delete_stack(stack, false, vec![0]);
+        if restore_index {
+            self.go_to_cell(curr_index);
+        }
+    }
+
+    pub fn if_current_cell_is_zero<F>(
+        &mut self,
+        f: F,
+        restore_index: bool,
+        restore_index_before_calling: bool,
+    ) where
+        F: FnOnce(&mut Self),
+    {
+        let curr_index = self.curr_index;
+        let stack = self.generate_stack(1);
+        self.jump_to_stack(stack);
+        self.code += "+";
+        self.go_to_cell(curr_index);
+        let func = |brainfuck: &mut Self| {
+            brainfuck.jump_to_stack(stack);
+            brainfuck.code += "-";
+        };
+        self.if_current_cell_is_not_zero(func, false, false);
+        self.jump_to_stack(stack);
+        self.code += "[";
+        if restore_index_before_calling {
+            self.go_to_cell(curr_index);
+        }
+        f(self);
+        self.jump_to_stack(stack);
+        self.code += "-]";
+        self.delete_stack(stack, false, vec![0]);
+        if restore_index {
+            self.go_to_cell(curr_index);
+        }
+    }
+
+    pub fn if_current_cell_is_zero_else<F1, F2>(
+        &mut self,
+        f1: F1,
+        f2: F2,
+        restore_index: bool,
+        restore_index_before_calling: bool,
+    ) where
+        F1: FnOnce(&mut Self),
+        F2: FnOnce(&mut Self),
+    {
+        let curr_index = self.curr_index;
+        let stack = self.generate_stack(1);
+        let func1 = |brainfuck: &mut Self| {
+            if restore_index_before_calling {
+                brainfuck.go_to_cell(curr_index);
+            }
+            f1(brainfuck);
+            brainfuck.jump_to_stack(stack);
+            brainfuck.code += "+";
+        };
+        self.go_to_cell(curr_index);
+        self.if_current_cell_is_zero(func1, false, false);
+        let func2 = |brainfuck: &mut Self| {
+            if restore_index_before_calling {
+                brainfuck.go_to_cell(curr_index);
+            }
+            f2(brainfuck)
+        };
+        self.jump_to_stack(stack);
+        self.if_current_cell_is_zero(func2, false, false);
+        self.delete_stack(stack, false, None);
+        if restore_index {
+            self.go_to_cell(curr_index);
+        }
+    }
+
     pub fn print_string(&mut self, string: &str) {
         let stack = self.generate_stack(1);
+        let curr_index = self.curr_index;
         self.jump_to_stack(stack);
         let mut prev_value = 0;
         for c in string.chars() {
+            // self.set_current_cell_value(c as u8, None, true);
             self.set_current_cell_value(c as u8, prev_value, true);
             prev_value = c as u8;
             self.print_current_cell();
         }
         self.delete_stack(stack, false, vec![prev_value]);
+        // self.delete_stack(stack, false, None);
+        self.go_to_cell(curr_index);
         self.optimise_code()
-    }
-
-    pub fn println_string(&mut self, string: &str) {
-        self.print_string(&(string.to_string() + "\n"));
     }
 
     fn contains_bad_code(&self) -> bool {
@@ -439,6 +542,9 @@ impl BrainFuck {
     }
 
     pub fn get_optimised_code(&mut self) -> String {
+        if self.stacks.len() != 1 {
+            eprintln!("Stacks not deleted properly!");
+        }
         self.optimise_code();
         let optimised_code = self.code.clone();
         // let last_input_or_output = optimised_code
@@ -446,9 +552,21 @@ impl BrainFuck {
         //     .unwrap_or(0);
         // optimised_code[..last_input_or_output + 1].to_string()
         optimised_code
+            .chars()
+            .enumerate()
+            .map(|(i, c)| {
+                if (i + 1) % WORDWRAP_THRESHOLD == 0 {
+                    c.to_string() + "\n"
+                } else {
+                    c.to_string()
+                }
+            })
+            .collect()
     }
 
-    // def run_code(self):
-    //     print(list(i for i in evaluate(self.code)))
-    //     print("".join(chr(i) for i in list(i for i in evaluate(self.code))))
+    pub fn run_code(&mut self) {
+        let optimised_code = self.get_optimised_code();
+        self.interpreter.interpret(&optimised_code, false);
+        // self.interpreter.interpret(&optimised_code, true);
+    }
 }
