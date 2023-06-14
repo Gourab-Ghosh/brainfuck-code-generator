@@ -1,4 +1,7 @@
-use std::{io::{Read, Write}, fmt::Display};
+use std::{
+    fmt::Display,
+    io::{Read, Write},
+};
 
 #[derive(Clone)]
 pub struct BrainFuckInterpreter {
@@ -23,7 +26,7 @@ impl BrainFuckInterpreter {
     pub fn get_current_cell_value(&self) -> u8 {
         self.memory[self.pointer]
     }
-    
+
     pub fn get_output(&self) -> String {
         self.output.clone()
     }
@@ -53,14 +56,14 @@ impl BrainFuckInterpreter {
                 '+' => self.memory[self.pointer] = self.memory[self.pointer].wrapping_add(1),
                 '-' => self.memory[self.pointer] = self.memory[self.pointer].wrapping_sub(1),
                 '.' => {
-                    let c = self.memory[self.pointer];
+                    let ch = self.memory[self.pointer];
                     if interpret_raw {
-                        print!("{} ", c);
+                        print!("{} ", ch);
                     } else {
-                        print!("{}", c as char);
+                        print!("{}", ch as char);
                     }
                     std::io::stdout().flush().unwrap();
-                    self.output += &(c as char).to_string();
+                    self.output.push(ch as char);
                 }
                 ',' => {
                     let mut buffer = [0; 1];

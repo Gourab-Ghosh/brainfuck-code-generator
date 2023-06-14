@@ -26,8 +26,8 @@ impl BrainFuck {
         self.value_changer_threshold
     }
 
-    pub fn set_value_changer_threshold(&mut self, value: u8) {
-        self.value_changer_threshold = value;
+    pub fn set_value_changer_threshold(&mut self, threshold: u8) {
+        self.value_changer_threshold = threshold;
     }
 
     pub fn get_last_empty_cell(&self) -> usize {
@@ -240,13 +240,10 @@ impl BrainFuck {
         restore_index: bool,
     ) {
         let optional_prev_value = optional_prev_value.into();
-        if value == 0 || optional_prev_value == Some(0) {
+        if value == 0 {
             return;
         }
         if let Some(prev_value) = optional_prev_value {
-            if prev_value < value {
-                return;
-            }
             if prev_value == value {
                 self.clear_current_cell();
                 return;
@@ -518,23 +515,81 @@ impl BrainFuck {
         }
     }
 
-    // pub fn if_elif_else(&mut self, conditions: Vec<(u8, dyn FnOnce(&mut Self))>, restore_index: bool, restore_index_before_calling: bool) {
-    //     self.if_current_cell_is_zero_else(conditions[0].1, conditions[1].1, restore_index, restore_index_before_calling);
-    // }
+    pub fn if_current_cell_equals_value_else<F1, F2>(
+        &mut self,
+        f1: F1,
+        f2: F2,
+        value: u8,
+        restore_index: bool,
+    ) where
+        F1: FnOnce(&mut Self),
+        F2: FnOnce(&mut Self),
+    {
+        let curr_index = self.curr_index;
+        let stack = self.generate_stack(1);
+        self.copy_value_without_overwriting(curr_index, stack.get_start_index(), false);
+        self.jump_to_stack(stack);
+        self.subtract_from_current_cell(value, None, true);
+        let func1 = |brainfuck: &mut Self| {
+            brainfuck.go_to_cell(curr_index);
+            f1(brainfuck);
+        };
+        let func2 = |brainfuck: &mut Self| {
+            brainfuck.go_to_cell(curr_index);
+            f2(brainfuck);
+        };
+        self.if_current_cell_is_zero_else(func1, func2, false, false);
+        self.delete_stack(stack, false, None);
+        if restore_index {
+            self.go_to_cell(curr_index);
+        }
+    }
+
+    pub fn if_elif_else(
+        &mut self,
+        conditions: Vec<(u8, fn(&mut Self))>,
+        default_function: fn(&mut Self),
+        restore_index: bool,
+        restore_index_before_calling: bool,
+    ) {
+        if conditions.len() == 0 {
+            if restore_index {
+                self.backup_index();
+            }
+            default_function(self);
+            if restore_index {
+                self.restore_index();
+            }
+            return;
+        }
+        let (value, f1) = conditions[0];
+        let f2 = |brainfuck: &mut Self| {
+            brainfuck.if_elif_else(
+                conditions[1..].to_vec(),
+                default_function,
+                false,
+                restore_index_before_calling,
+            );
+        };
+        self.if_current_cell_equals_value_else(
+            f1,
+            f2,
+            value,
+            restore_index,
+        );
+    }
 
     pub fn print_string(&mut self, string: &str) {
         let stack = self.generate_stack(1);
         let curr_index = self.curr_index;
         self.jump_to_stack(stack);
         let mut prev_value = 0;
-        for c in string.chars() {
-            // self.set_current_cell_value(c as u8, None, true);
-            self.set_current_cell_value(c as u8, prev_value, true);
-            prev_value = c as u8;
+        for ch in string.chars() {
+            self.set_current_cell_value(ch as u8, prev_value, true);
+            prev_value = ch as u8;
             self.print_current_cell();
         }
         self.delete_stack(stack, false, vec![prev_value]);
-        // self.delete_stack(stack, false, None);
         self.go_to_cell(curr_index);
         self.optimise_code()
     }
@@ -558,18 +613,21 @@ impl BrainFuck {
 
     pub fn get_optimised_code(&mut self) -> String {
         if self.stacks.len() != 1 {
-            eprintln!("Stacks not deleted properly!");
+            panic!("Stacks not deleted properly!");
+        }
+        if self.index_backups.len() != 0 {
+            panic!("Indices not restored properly!");
         }
         self.optimise_code();
         let optimised_code = self.code.clone();
         optimised_code
             .chars()
             .enumerate()
-            .map(|(i, c)| {
+            .map(|(i, ch)| {
                 if (i + 1) % WORDWRAP_THRESHOLD == 0 {
-                    c.to_string() + "\n"
+                    ch.to_string() + "\n"
                 } else {
-                    c.to_string()
+                    ch.to_string()
                 }
             })
             .collect()
@@ -583,7 +641,12 @@ impl BrainFuck {
         let optimised_code = self.get_optimised_code();
         self.interpreter.reset();
         self.interpreter.interpret(&optimised_code, false);
-        // self.interpreter.interpret(&optimised_code, true);
+    }
+
+    pub fn run_code_raw(&mut self) {
+        let optimised_code = self.get_optimised_code();
+        self.interpreter.reset();
+        self.interpreter.interpret(&optimised_code, true);
     }
 
     pub fn clear_code(&mut self) {
@@ -594,16 +657,15 @@ impl BrainFuck {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ZERO_TEXT: &str = "The value fo the cell is zero! This text should be the output of the code. This text is intensionally made huge so that any mistakes in the code can be spotted more accurately";
+    const NOT_ZERO_TEXT: &str = "The value fo the cell is not zero! This text should be the output of the code. This text is intensionally made huge so that any mistakes in the code can be spotted more accurately";
+
     #[test]
     fn test_add() {
         let mut brainfuck = BrainFuck::new(1);
         let mut val = 0;
-        for (threshold, value) in [
-            (5, 10),
-            (15, 12),
-            (50, 30),
-            (u8::MAX, 50),
-        ] {
+        for (threshold, value) in [(5, 10), (1, 20), (50, 30), (u8::MAX, 50)] {
             brainfuck.set_value_changer_threshold(threshold);
             brainfuck.add_to_current_cell(value, true);
             val += value;
@@ -619,12 +681,7 @@ mod tests {
         for _ in 0..val {
             brainfuck.code += "+";
         }
-        for (threshold, value) in [
-            (5, 10),
-            (15, 12),
-            (50, 37),
-            (u8::MAX, 50),
-        ] {
+        for (threshold, value) in [(5, 10), (1, 20), (50, 37), (u8::MAX, 50)] {
             brainfuck.set_value_changer_threshold(threshold);
             brainfuck.subtract_from_current_cell(value, None, true);
             val -= value;
@@ -641,14 +698,11 @@ mod tests {
     fn test_multiply() {
         let mut brainfuck = BrainFuck::new(1);
         let mut val;
-        for (idx, (threshold, value)) in [
-            (5, 7),
-            (15, 4),
-            (50, 1),
-            (u8::MAX, 50),
-            (2, 13),
-            (20, 40),
-        ].iter().enumerate() {
+        for (idx, (threshold, value)) in
+            [(5, 7), (15, 4), (50, 1), (u8::MAX, 50), (1, 13), (20, 40)]
+                .iter()
+                .enumerate()
+        {
             for _ in 0..idx {
                 brainfuck.code += "+";
             }
@@ -702,6 +756,94 @@ mod tests {
             prev_val = value;
             brainfuck.run_code();
             assert_eq!(brainfuck.interpreter.get_current_cell_value(), value);
+        }
+    }
+
+    #[test]
+    fn test_if_zero_confition() {
+        let mut brainfuck = BrainFuck::new(1);
+        for threshold in [1, 10, 20, 100, 150, u8::MAX] {
+            brainfuck.set_value_changer_threshold(threshold);
+            brainfuck.code.clear();
+            let f = |brainfuck: &mut BrainFuck| brainfuck.print_string(ZERO_TEXT);
+            brainfuck.if_current_cell_is_zero(f, true, true);
+            brainfuck.run_code();
+            assert_eq!(brainfuck.interpreter.get_output(), ZERO_TEXT);
+            brainfuck.clear_code();
+            brainfuck.code += "+";
+            brainfuck.if_current_cell_is_zero(f, true, true);
+            brainfuck.run_code();
+            assert_eq!(brainfuck.interpreter.get_output(), "");
+        }
+    }
+
+    #[test]
+    fn test_if_not_zero_confition() {
+        let mut brainfuck = BrainFuck::new(1);
+        for threshold in [1, 10, 20, 100, 150, u8::MAX] {
+            brainfuck.set_value_changer_threshold(threshold);
+            brainfuck.code.clear();
+            let f = |brainfuck: &mut BrainFuck| brainfuck.print_string(NOT_ZERO_TEXT);
+            brainfuck.if_current_cell_is_not_zero(f, true, true);
+            brainfuck.run_code();
+            assert_eq!(brainfuck.interpreter.get_output(), "");
+            brainfuck.clear_code();
+            brainfuck.code += "+";
+            brainfuck.if_current_cell_is_not_zero(f, true, true);
+            brainfuck.run_code();
+            assert_eq!(brainfuck.interpreter.get_output(), NOT_ZERO_TEXT);
+        }
+    }
+
+    #[test]
+    fn test_if_zero_else_confition() {
+        macro_rules! generate_conditions {
+            ($value: literal) => {
+                ($value, |brainfuck: &mut BrainFuck| {
+                    brainfuck.print_string(&format!("You entered {}!", $value))
+                })
+            };
+        }
+        let mut brainfuck = BrainFuck::new(1);
+        for threshold in [1, 10, 20, 100, 150, u8::MAX] {
+            brainfuck.set_value_changer_threshold(threshold);
+            for value in 0..11 {
+                brainfuck.code.clear();
+                for _ in 0..value {
+                    brainfuck.code += "+"
+                }
+                brainfuck.if_elif_else(
+                    vec![
+                        generate_conditions!(0),
+                        generate_conditions!(1),
+                        generate_conditions!(2),
+                        generate_conditions!(3),
+                        generate_conditions!(4),
+                        generate_conditions!(5),
+                        generate_conditions!(6),
+                        generate_conditions!(7),
+                        generate_conditions!(8),
+                        generate_conditions!(9),
+                    ],
+                    |brainfuck: &mut BrainFuck| {
+                        brainfuck.print_string(
+                            "The value is not between 0 to 9! Try entering a digit in the input",
+                        )
+                    },
+                    true,
+                    true,
+                );
+                brainfuck.run_code();
+                let expected_output = if value == 10 {
+                    "The value is not between 0 to 9! Try entering a digit in the input".to_string()
+                } else {
+                    format!("You entered {}!", value)
+                };
+                assert_eq!(
+                    (brainfuck.interpreter.get_output(), threshold),
+                    (expected_output, threshold),
+                )
+            }
         }
     }
 }
