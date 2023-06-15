@@ -1,7 +1,9 @@
+// https://github.com/dmitmel/brainwhat.git
+
 #![allow(dead_code)]
 
-use std::time::*;
 use brainfuck::*;
+use std::time::*;
 
 fn factorial(brainfuck: &mut BrainFuck) {
     brainfuck.take_input("Enter some number to calculate factorial: ");
@@ -34,7 +36,6 @@ fn test(brainfuck: &mut BrainFuck) {
 #[rustfmt::skip]
 fn main() {
     let mut brainfuck = BrainFuck::new(1);
-    brainfuck.set_value_changer_threshold(u8::MAX);
     // brainfuck.print_string("Hello World!");
     // brainfuck.print_string("This is a huge text which is printed for testing my brainfuck code generator!");
     test(&mut brainfuck);
@@ -48,8 +49,9 @@ fn main() {
     println!("\n\n");
     brainfuck.print_interpreter();
     println!(
-        "\n\nCode Generation Time: {}\nCode Runnng Time: {}",
+        "\n\nCode Generation Time: {}\nCode Runnng Time: {}\n Num Steps: {}",
         code_generation_time.as_secs_f64(),
         code_running_time.as_secs_f64(),
+        brainfuck.interpreter.get_num_steps()
     );
 }

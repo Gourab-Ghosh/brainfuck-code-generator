@@ -17,7 +17,7 @@ impl BrainFuck {
             stacks: vec![Stack::new(0, initial_stack_size)],
             index_backups: vec![],
             code: String::new(),
-            value_changer_threshold: 15,
+            value_changer_threshold: if OPTIMISE_CODE { u8::MAX } else { 15 },
             interpreter: BrainFuckInterpreter::new(),
         }
     }
@@ -571,12 +571,7 @@ impl BrainFuck {
                 restore_index_before_calling,
             );
         };
-        self.if_current_cell_equals_value_else(
-            f1,
-            f2,
-            value,
-            restore_index,
-        );
+        self.if_current_cell_equals_value_else(f1, f2, value, restore_index);
     }
 
     pub fn print_string(&mut self, string: &str) {
