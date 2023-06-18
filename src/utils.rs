@@ -1,6 +1,6 @@
 use super::*;
 
-pub fn get_smallest_prime_factor(number: u8) -> u8 {
+pub fn get_smallest_prime_factor(number: CellData) -> CellData {
     for prime in PRIMES {
         if number % prime == 0 {
             return prime;
@@ -9,7 +9,7 @@ pub fn get_smallest_prime_factor(number: u8) -> u8 {
     unreachable!()
 }
 
-pub fn is_prime(number: u8) -> bool {
+pub fn is_prime(number: CellData) -> bool {
     PRIMES.contains(&number)
 }
 

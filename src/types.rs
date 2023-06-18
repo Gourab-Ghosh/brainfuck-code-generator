@@ -38,7 +38,7 @@ impl BigNumberEnum {
         }
     }
 
-    pub fn get_value(&self, memory: &[u8]) -> u64 {
+    pub fn get_value(&self, memory: &[CellData]) -> u64 {
         match self {
             BigNum(sub_num_1, sub_num_2) => {
                 let size = sub_num_1.get_size();

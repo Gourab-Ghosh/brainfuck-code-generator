@@ -2,11 +2,10 @@ use super::*;
 
 #[derive(Clone)]
 pub struct BrainFuckInterpreter {
-    memory: Vec<u8>,
+    memory: Vec<CellData>,
     pointer: usize,
     output: String,
     num_steps: u64,
-    max_size: usize,
 }
 
 impl BrainFuckInterpreter {
@@ -16,7 +15,6 @@ impl BrainFuckInterpreter {
             pointer: 0,
             output: String::new(),
             num_steps: 0,
-            max_size: 30000,
         }
     }
 
@@ -24,7 +22,7 @@ impl BrainFuckInterpreter {
         self.pointer
     }
 
-    pub fn get_current_cell_value(&self) -> u8 {
+    pub fn get_current_cell_value(&self) -> CellData {
         self.memory[self.pointer]
     }
 
@@ -37,8 +35,7 @@ impl BrainFuckInterpreter {
     }
 
     pub fn reset(&mut self) {
-        self.memory.clear();
-        self.memory.push(0);
+        self.memory = vec![0; 1];
         self.pointer = 0;
         self.output.clear();
         self.num_steps = 0;
@@ -58,52 +55,53 @@ impl BrainFuckInterpreter {
         optimised_code
     }
 
-    pub fn interpret(&mut self, code: &str, interpret_raw: bool) {
-        let mut loop_stack: Vec<usize> = Vec::new();
+    pub fn interpret(&mut self, code: &str, debug: bool) {
         let code_chars = Self::optimise_code(code);
+        let mut loop_stack: Vec<usize> = Vec::new();
         let code_len = code_chars.len();
         let mut code_index = 0;
 
         while code_index < code_len {
             let (ch, num_repetitions) = code_chars[code_index];
+            if debug {
+                println!("{:?}\n{} * {}", self.memory, ch, num_repetitions);
+            }
+
             match ch {
                 '>' => {
-                    self.pointer = self.pointer.wrapping_add(num_repetitions as usize) % self.max_size;
-                    while self.memory.len() < self.pointer + 1 {
+                    self.pointer += num_repetitions as usize;
+                    while self.memory.len() <= self.pointer {
                         self.memory.push(0);
                     }
                 }
                 '<' => {
-                    self.pointer = self.pointer.wrapping_sub(num_repetitions as usize) % self.max_size;
-                    while self.memory.len() < self.pointer + 1 {
-                        self.memory.push(0);
-                    }
+                    self.pointer -= num_repetitions as usize;
                 }
                 '+' => {
                     self.memory[self.pointer] =
-                        self.memory[self.pointer].wrapping_add(num_repetitions as u8)
+                        self.memory[self.pointer].wrapping_add(num_repetitions as CellData);
                 }
                 '-' => {
                     self.memory[self.pointer] =
-                        self.memory[self.pointer].wrapping_sub(num_repetitions as u8)
+                        self.memory[self.pointer].wrapping_sub(num_repetitions as CellData);
                 }
                 '.' => {
                     for _ in 0..num_repetitions {
                         let ch = self.memory[self.pointer];
-                        if interpret_raw {
+                        if debug {
                             print!("{} ", ch);
                         } else {
-                            print!("{}", ch as char);
+                            print!("{}", (ch as u8) as char);
                         }
                         std::io::stdout().flush().unwrap();
-                        self.output.push(ch as char);
+                        self.output.push((ch as u8) as char);
                     }
                 }
                 ',' => {
                     for _ in 0..num_repetitions {
                         let mut buffer = [0; 1];
                         std::io::stdin().read_exact(&mut buffer).unwrap();
-                        self.memory[self.pointer] = buffer[0];
+                        self.memory[self.pointer] = buffer[0] as CellData;
                     }
                 }
                 '[' => {
@@ -127,13 +125,15 @@ impl BrainFuckInterpreter {
                 ']' => {
                     if self.memory[self.pointer] != 0 {
                         if let Some(&loop_start) = loop_stack.last() {
-                            code_index = loop_start - 1;
+                            code_index = loop_start;
                         }
                     } else {
                         loop_stack.pop();
                     }
                 }
-                '#' => println!("\n{}\n", self),
+                '#' => {
+                    println!("\n{}", self);
+                }
                 _ => (),
             }
 
@@ -149,7 +149,7 @@ impl Display for BrainFuckInterpreter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut pointer_position = String::from(" ");
         if self.pointer > 0 {
-            for i in self.memory[..self.pointer].iter() {
+            for i in &self.memory[..self.pointer] {
                 for _ in 0..i.to_string().len() + 2 {
                     pointer_position += " ";
                 }
